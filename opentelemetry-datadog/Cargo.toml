@@ -45,7 +45,7 @@ base64 = "0.13"
 bytes = "1"
 futures-util = { version = "0.3", features = ["io"] }
 isahc = "1.4"
-opentelemetry = { path = "../opentelemetry", features = ["trace", "testing"] }
+opentelemetry = { version = "0.20", features = ["trace", "testing"] }
 
 [[example]]
 name = "datadog"
