@@ -141,6 +141,8 @@ pub use exporter::{
     ModelConfig,
 };
 pub use propagator::DatadogPropagator;
+#[cfg(feature = "agent-sampling")]
+pub use propagator::TRACE_FLAG_AGENT_SAMPLED;
 
 mod propagator {
     use once_cell::sync::Lazy;
@@ -155,6 +157,8 @@ mod propagator {
     const DATADOG_SAMPLING_PRIORITY_HEADER: &str = "x-datadog-sampling-priority";
 
     const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
+    #[cfg(feature = "agent-sampling")]
+    pub const TRACE_FLAG_AGENT_SAMPLED: TraceFlags = TraceFlags::new(0x04);
 
     static DATADOG_HEADER_FIELDS: Lazy<[String; 3]> = Lazy::new(|| {
         [
@@ -253,10 +257,16 @@ mod propagator {
             );
             let sampled = match sampling_priority {
                 Ok(SamplingPriority::UserReject) | Ok(SamplingPriority::AutoReject) => {
-                    TraceFlags::default()
+                    #[cfg(not(feature = "agent-sampling"))]
+                    { TraceFlags::default() }
+                    #[cfg(feature = "agent-sampling")]
+                    { TraceFlags::SAMPLED }
                 }
                 Ok(SamplingPriority::UserKeep) | Ok(SamplingPriority::AutoKeep) => {
-                    TraceFlags::SAMPLED
+                    #[cfg(not(feature = "agent-sampling"))]
+                    { TraceFlags::SAMPLED }
+                    #[cfg(feature = "agent-sampling")]
+                    { TraceFlags::SAMPLED | TRACE_FLAG_AGENT_SAMPLED }
                 }
                 // Treat the sampling as DEFERRED instead of erroring on extracting the span context
                 Err(_) => TRACE_FLAG_DEFERRED,
@@ -289,11 +299,19 @@ mod propagator {
                 );
 
                 if span_context.trace_flags() & TRACE_FLAG_DEFERRED != TRACE_FLAG_DEFERRED {
+                    #[cfg(not(feature = "agent-sampling"))]
                     let sampling_priority = if span_context.is_sampled() {
                         SamplingPriority::AutoKeep
                     } else {
                         SamplingPriority::AutoReject
                     };
+                    #[cfg(feature = "agent-sampling")]
+                    let sampling_priority =
+                        if span_context.trace_flags() & TRACE_FLAG_AGENT_SAMPLED == TRACE_FLAG_AGENT_SAMPLED {
+                            SamplingPriority::AutoKeep
+                        } else {
+                            SamplingPriority::AutoReject
+                        };
 
                     injector.set(
                         DATADOG_SAMPLING_PRIORITY_HEADER,

@@ -5,7 +5,7 @@ use crate::exporter::model::SAMPLING_PRIORITY_KEY;
 use crate::exporter::{Error, ModelConfig};
 use opentelemetry::sdk::export::trace;
 use opentelemetry::sdk::export::trace::SpanData;
-use opentelemetry::trace::Status;
+use opentelemetry::trace::{Status, TraceFlags};
 use opentelemetry::{Key, Value};
 use std::time::SystemTime;
 
@@ -206,15 +206,20 @@ where
                 rmp::encode::write_u32(&mut encoded, interner.intern(value.as_str().as_ref()))?;
             }
 
-            #[cfg(feature = "measure")]
-            const METRICS_LEN : u32 = 2;
             #[cfg(not(feature = "measure"))]
-            const METRICS_LEN : u32 = 1;
+            const MEASURE_ENTRY : u32 = 0;
+            #[cfg(feature = "measure")]
+            const MEASURE_ENTRY : u32 = 1;
+            const METRICS_LEN : u32 = 1 + MEASURE_ENTRY;
             rmp::encode::write_map_len(&mut encoded, METRICS_LEN)?;
             rmp::encode::write_u32(&mut encoded, interner.intern(SAMPLING_PRIORITY_KEY))?;
+            #[cfg(not(feature = "agent-sampling"))]
+            const TEST_SAMPLED : TraceFlags = TraceFlags::SAMPLED;
+            #[cfg(feature = "agent-sampling")]
+            const TEST_SAMPLED : TraceFlags = crate::TRACE_FLAG_AGENT_SAMPLED;
             rmp::encode::write_f64(
                 &mut encoded,
-                if span.span_context.is_sampled() {
+                if span.span_context.trace_flags() & TEST_SAMPLED == TEST_SAMPLED  {
                     1.0
                 } else {
                     0.0
