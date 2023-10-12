@@ -1,4 +1,6 @@
 use crate::exporter::intern::StringInterner;
+#[cfg(feature = "measure")]
+use crate::exporter::model::DD_MEASURED_KEY;
 use crate::exporter::model::SAMPLING_PRIORITY_KEY;
 use crate::exporter::{Error, ModelConfig};
 use opentelemetry::sdk::export::trace;
@@ -203,7 +205,12 @@ where
                 rmp::encode::write_u32(&mut encoded, interner.intern(key.as_str()))?;
                 rmp::encode::write_u32(&mut encoded, interner.intern(value.as_str().as_ref()))?;
             }
-            rmp::encode::write_map_len(&mut encoded, 1)?;
+
+            #[cfg(feature = "measure")]
+            const METRICS_LEN : u32 = 2;
+            #[cfg(not(feature = "measure"))]
+            const METRICS_LEN : u32 = 1;
+            rmp::encode::write_map_len(&mut encoded, METRICS_LEN)?;
             rmp::encode::write_u32(&mut encoded, interner.intern(SAMPLING_PRIORITY_KEY))?;
             rmp::encode::write_f64(
                 &mut encoded,
@@ -213,6 +220,11 @@ where
                     0.0
                 },
             )?;
+            #[cfg(feature = "measure")]
+            {
+                rmp::encode::write_u32(&mut encoded, interner.intern(DD_MEASURED_KEY))?;
+                rmp::encode::write_f64(&mut encoded, 1.0)?;
+            }
             rmp::encode::write_u32(&mut encoded, span_type)?;
         }
     }
