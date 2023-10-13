@@ -274,7 +274,7 @@ mod propagator {
             let trace_state = TraceState::default();
             #[cfg(feature = "agent-sampling")]
             let trace_state = TraceState::from_key_value(
-                [(TRACE_STATE_PRIORITY_SAMPLING, "1")]
+                [(TRACE_STATE_PRIORITY_SAMPLING, sampled.is_sampled())]
             ).unwrap_or_default();
 
             Ok(SpanContext::new(
