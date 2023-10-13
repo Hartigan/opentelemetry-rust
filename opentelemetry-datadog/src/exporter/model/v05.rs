@@ -3,9 +3,13 @@ use crate::exporter::intern::StringInterner;
 use crate::exporter::model::DD_MEASURED_KEY;
 use crate::exporter::model::SAMPLING_PRIORITY_KEY;
 use crate::exporter::{Error, ModelConfig};
+#[cfg(feature = "agent-sampling")]
+use crate::propagator::TRACE_STATE_PRIORITY_SAMPLING;
+#[cfg(feature = "measure")]
+use crate::propagator::TRACE_STATE_MEASURE;
 use opentelemetry::sdk::export::trace;
 use opentelemetry::sdk::export::trace::SpanData;
-use opentelemetry::trace::{Status, TraceFlags};
+use opentelemetry::trace::Status;
 use opentelemetry::{Key, Value};
 use std::time::SystemTime;
 
@@ -211,15 +215,21 @@ where
             #[cfg(feature = "measure")]
             const MEASURE_ENTRY : u32 = 1;
             const METRICS_LEN : u32 = 1 + MEASURE_ENTRY;
+
+            #[cfg(not(feature = "agent-sampling"))]
+            let sampling_priority = span.span_context.trace_flags().is_sampled();
+            #[cfg(feature = "agent-sampling")]
+            let sampling_priority = span.span_context
+                .trace_state()
+                .get(TRACE_STATE_PRIORITY_SAMPLING)
+                .map(|x| x == "1")
+                .unwrap_or(false);
+
             rmp::encode::write_map_len(&mut encoded, METRICS_LEN)?;
             rmp::encode::write_u32(&mut encoded, interner.intern(SAMPLING_PRIORITY_KEY))?;
-            #[cfg(not(feature = "agent-sampling"))]
-            const TEST_SAMPLED : TraceFlags = TraceFlags::SAMPLED;
-            #[cfg(feature = "agent-sampling")]
-            const TEST_SAMPLED : TraceFlags = crate::TRACE_FLAG_AGENT_SAMPLED;
             rmp::encode::write_f64(
                 &mut encoded,
-                if span.span_context.trace_flags() & TEST_SAMPLED == TEST_SAMPLED  {
+                if sampling_priority  {
                     1.0
                 } else {
                     0.0
@@ -227,8 +237,13 @@ where
             )?;
             #[cfg(feature = "measure")]
             {
+                let is_measure = span.span_context
+                    .trace_state()
+                    .get(TRACE_STATE_MEASURE)
+                    .map(|x| if x == "1" { 1.0 } else { 0.0 })
+                    .unwrap_or(0.0);
                 rmp::encode::write_u32(&mut encoded, interner.intern(DD_MEASURED_KEY))?;
-                rmp::encode::write_f64(&mut encoded, 1.0)?;
+                rmp::encode::write_f64(&mut encoded, is_measure)?;
             }
             rmp::encode::write_u32(&mut encoded, span_type)?;
         }

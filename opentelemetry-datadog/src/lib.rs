@@ -142,7 +142,9 @@ pub use exporter::{
 };
 pub use propagator::DatadogPropagator;
 #[cfg(feature = "agent-sampling")]
-pub use propagator::TRACE_FLAG_AGENT_SAMPLED;
+pub use propagator::TRACE_STATE_PRIORITY_SAMPLING;
+#[cfg(feature = "measure")]
+pub use propagator::TRACE_STATE_MEASURE;
 
 mod propagator {
     use once_cell::sync::Lazy;
@@ -158,7 +160,9 @@ mod propagator {
 
     const TRACE_FLAG_DEFERRED: TraceFlags = TraceFlags::new(0x02);
     #[cfg(feature = "agent-sampling")]
-    pub const TRACE_FLAG_AGENT_SAMPLED: TraceFlags = TraceFlags::new(0x04);
+    pub const TRACE_STATE_PRIORITY_SAMPLING: &str = "psr";
+    #[cfg(feature = "measure")]
+    pub const TRACE_STATE_MEASURE: &str = "m";
 
     static DATADOG_HEADER_FIELDS: Lazy<[String; 3]> = Lazy::new(|| {
         [
@@ -257,22 +261,21 @@ mod propagator {
             );
             let sampled = match sampling_priority {
                 Ok(SamplingPriority::UserReject) | Ok(SamplingPriority::AutoReject) => {
-                    #[cfg(not(feature = "agent-sampling"))]
-                    { TraceFlags::default() }
-                    #[cfg(feature = "agent-sampling")]
-                    { TraceFlags::SAMPLED }
+                    TraceFlags::default()
                 }
                 Ok(SamplingPriority::UserKeep) | Ok(SamplingPriority::AutoKeep) => {
-                    #[cfg(not(feature = "agent-sampling"))]
-                    { TraceFlags::SAMPLED }
-                    #[cfg(feature = "agent-sampling")]
-                    { TraceFlags::SAMPLED | TRACE_FLAG_AGENT_SAMPLED }
+                    TraceFlags::SAMPLED
                 }
                 // Treat the sampling as DEFERRED instead of erroring on extracting the span context
                 Err(_) => TRACE_FLAG_DEFERRED,
             };
 
+            #[cfg(not(feature = "agent-sampling"))]
             let trace_state = TraceState::default();
+            #[cfg(feature = "agent-sampling")]
+            let trace_state = TraceState::from_key_value(
+                [(TRACE_STATE_PRIORITY_SAMPLING, "1")]
+            ).unwrap_or_default();
 
             Ok(SpanContext::new(
                 trace_id,
@@ -307,7 +310,10 @@ mod propagator {
                     };
                     #[cfg(feature = "agent-sampling")]
                     let sampling_priority =
-                        if span_context.trace_flags() & TRACE_FLAG_AGENT_SAMPLED == TRACE_FLAG_AGENT_SAMPLED {
+                        if span_context
+                            .trace_state()
+                            .get(TRACE_STATE_PRIORITY_SAMPLING)
+                            .unwrap_or("0") == "1" {
                             SamplingPriority::AutoKeep
                         } else {
                             SamplingPriority::AutoReject
